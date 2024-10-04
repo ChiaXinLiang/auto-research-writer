@@ -4,6 +4,7 @@ from supabase import create_client, Client
 import json
 from sentence_transformers import SentenceTransformer
 import torch
+from tqdm import tqdm
 
 def initialize_supabase():
     load_dotenv('.env.local')
@@ -15,13 +16,13 @@ def initialize_supabase():
     supabase: Client = create_client(url, key)
     return supabase, embedding_model
 
-def insert_document(supabase, content: str, metadata: dict, embedding: list):
-    data = supabase.table("documents").insert({
-        "content": content,
-        "metadata": metadata,
-        "embedding": embedding
-    }).execute()
-    return data
+def insert_documents_batch(supabase, documents):
+    try:
+        data = supabase.table("documents").insert(documents).execute()
+        return data
+    except Exception as e:
+        print(f"Error inserting batch: {str(e)}")
+        return None
 
 def search_documents(supabase, query_embedding: list, match_threshold: float = 0.8, match_count: int = 10):
     data = supabase.rpc(
@@ -44,8 +45,6 @@ def get_dataset():
     else:
         print("Error: DATASET_PATH not found in environment variables.")
         return None
-
-
 
 def filter_dataset(dataset, category):
     filtered_data = []
@@ -77,7 +76,7 @@ def get_filtered_dataset(category='cs'):
     
 def get_document(embedding_model, paper):
     # Prepare content
-    content = f"Topic: {paper['title'].replace('\n', '')} \n Abstract: {paper['abstract'].replace('\n', '')}"
+    content = f"Title: {paper['title'].replace('\n', '')} \n Abstract: {paper['abstract'].replace('\n', '')}"
     # Prepare metadata
     metadata = {
         'title': paper['title'].replace('\n', ''),
@@ -94,15 +93,10 @@ def get_document(embedding_model, paper):
     
     return embedding, metadata, content
 
-def insert_document_by_index(supabase, embedding, metadata, content):
-    insert_document(supabase, embedding, metadata, content)
-    print(f"Inserted document: {metadata['title']}")
-
 def delete_all_documents(supabase):
     try:
         # Delete all rows from the 'documents' table
         response = supabase.table('documents').delete().neq('id', 0).execute()
-
         
         # Check if the deletion was successful
         if response.data is not None:
@@ -132,17 +126,29 @@ def filter_papers(dataset, categories):
 def insert_papers(supabase, embedding_model, papers):
     total_papers = len(papers)
     inserted_papers = 0
-    for index, paper in enumerate(papers, 1):
-        paper_id = paper['id']
-        existing_paper = supabase.table('documents').select('id').eq('metadata->>id', paper_id).execute()
+    batch_size = 500  # Adjust this value based on your needs
+    
+    for i in tqdm(range(0, total_papers, batch_size), desc="Inserting papers"):
+        batch = papers[i:i+batch_size]
+        documents_to_insert = []
         
-        if not existing_paper.data:
-            embedding, metadata, content = get_document(embedding_model, paper)
-            insert_document(supabase, content, metadata, embedding.tolist())
-            print(f"Inserted paper {index}: {paper['title']}")
-            inserted_papers += 1
-        else:
-            print(f"Skipped paper {index}: {paper['title']} (already exists)")
+        for paper in batch:
+            paper_id = paper['id']
+            existing_paper = supabase.table('documents').select('id').eq('metadata->>id', paper_id).execute()
+            
+            if not existing_paper.data:
+                embedding, metadata, content = get_document(embedding_model, paper)
+                documents_to_insert.append({
+                    "content": content,
+                    "metadata": metadata,
+                    "embedding": embedding.tolist()
+                })
+                inserted_papers += 1
+        
+        if documents_to_insert:
+            result = insert_documents_batch(supabase, documents_to_insert)
+            if result is None:
+                print(f"Failed to insert batch starting at index {i}")
     
     print(f"Inserted {inserted_papers} out of {total_papers} papers into Supabase")
 
