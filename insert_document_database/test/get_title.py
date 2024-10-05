@@ -13,7 +13,7 @@ embedding_model = SentenceTransformer(model_choose, trust_remote_code=True)
 embedding_model.to(torch.device('mps'))
 
 # Query to search with
-query = "The application of multimodal large language model on visual"
+query = "Calculating Valid Domains for BDD-Based Interactive Configuration"
 
 # Generate query embedding using SentenceTransformer
 query_embedding = embedding_model.encode(query).tolist()
@@ -21,13 +21,16 @@ query_embedding = embedding_model.encode(query).tolist()
 # Start timing
 start_time = time.time()
 
+# Execute the query
 response = supabase.rpc(
-    'match_documents',
+    'match_arxiv_documents',
     {
         'query_embedding': query_embedding,
-        'match_threshold':0.5,
+        'match_threshold': 0.7,
         'match_count': 1,
-        'filter': {}
+        'filters':{
+            'start_date': '2009-03-03T00:00:00Z'
+        }
     }
 ).execute()
 
@@ -35,9 +38,13 @@ response = supabase.rpc(
 end_time = time.time()
 
 data = response.data
-print("query: ", query)
-print("Retrieved data:")
-print(data)
+
+print("query:", query)
+print("Number of retrieved documents:", len(data))
+if data:
+    print(data)
+else:
+    print("No documents retrieved.")
 
 # Calculate and print the time taken
 time_taken = end_time - start_time

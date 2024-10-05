@@ -5,6 +5,7 @@ import json
 from sentence_transformers import SentenceTransformer
 import torch
 from tqdm import tqdm
+from datetime import datetime
 
 def initialize_supabase():
     load_dotenv('.env.local')
@@ -21,7 +22,12 @@ def initialize_supabase():
 
 def insert_documents_batch(supabase, documents):
     try:
-        data = supabase.table("documents").insert(documents).execute()
+        documents_table_name = os.environ.get("DOCUMENTS_TABLE_NAME")
+        # Convert datetime objects to ISO format strings
+        for doc in documents:
+            if 'update_date' in doc and isinstance(doc['update_date'], datetime):
+                doc['update_date'] = doc['update_date'].isoformat()
+        data = supabase.table(documents_table_name).insert(documents).execute()
         return data
     except Exception as e:
         print(f"Error inserting batch: {str(e)}")
@@ -78,28 +84,43 @@ def get_filtered_dataset(category='cs'):
         return None
     
 def get_document(embedding_model, paper):
-    # Prepare content
-    content = f"Title: {paper['title'].replace('\n', '')} \n Abstract: {paper['abstract'].replace('\n', '')}"
-    # Prepare metadata
-    metadata = {
-        'title': paper['title'].replace('\n', ''),
-        'authors': paper['authors'],
-        'categories': paper['categories'],
-        'id': paper['id'],
-        'doi': paper['doi'],
-        'journal_ref': paper['journal-ref'],
-        'update_date': paper['versions'][-1]['created']
-    }
+    # Prepare content for embedding
+    content = f"{paper['abstract'].replace('\n', '')}"
     
     # Generate embedding
     embedding = embedding_model.encode(content)
+    # print(paper)
+    # Prepare document data according to the schema
+    document = {
+        "paper_id": paper['id'],
+        "title": paper['title'].replace('\n', ''),
+        "authors": paper['authors'].split(', '),  # Convert string to array
+        "categories": paper['categories'].split(),  # Convert string to array
+        "abstract": paper['abstract'].replace('\n', ''),
+        "update_date": datetime.strptime(paper['update_date'], "%Y-%m-%d"),  # Keep as datetime object
+        "journal_ref": paper.get('journal-ref'),
+        "doi": paper.get('doi'),
+        "metadata": json.dumps({
+            "submitter": paper['submitter'],
+            "comments": paper.get('comments'),
+            "versions": paper['versions'],
+            "report_no": paper.get('report-no'),
+            "license": paper.get('license'),
+            "authors_parsed": paper.get('authors_parsed', [])
+        }),
+        "embedding": embedding.tolist()
+    }
     
-    return embedding, metadata, content
+    # Remove None values from the document
+    document = {k: v for k, v in document.items() if v is not None}
+    document['metadata'] = json.dumps({k: v for k, v in json.loads(document['metadata']).items() if v is not None})
+    return document
 
 def delete_all_documents(supabase):
     try:
-        # Delete all rows from the 'documents' table
-        response = supabase.table('documents').delete().neq('id', 0).execute()
+        # Delete all rows from the table
+        documents_table_name = os.environ.get("DOCUMENTS_TABLE_NAME")
+        response = supabase.table(documents_table_name).delete().neq('id', 0).execute()
         
         # Check if the deletion was successful
         if response.data is not None:
@@ -129,32 +150,29 @@ def filter_papers(dataset, categories):
 def insert_papers(supabase, embedding_model, papers):
     total_papers = len(papers)
     inserted_papers = 0
-    batch_size = 500  # Adjust this value based on your needs
+    batch_size = 100  # Adjust this value based on your needs
+    documents_table_name = os.environ.get("DOCUMENTS_TABLE_NAME")
     
     for i in tqdm(range(0, total_papers, batch_size), desc="Inserting papers"):
-        if i % (5 * batch_size) == 0:
-            # Reinitialize Supabase every 5 batches
-            supabase, _ = initialize_supabase()
+        # if i % (5 * batch_size) == 0:
+        #     # Reinitialize Supabase every 5 batches
+        #     supabase, _ = initialize_supabase()
         
         batch = papers[i:i+batch_size]
         documents_to_insert = []
         
         # Get all existing paper IDs in this batch
         paper_ids = [paper['id'] for paper in batch]
-        existing_papers = supabase.table('documents').select('metadata->>id').in_('metadata->>id', paper_ids).execute()
-        existing_ids = set(paper['metadata']['id'] for paper in existing_papers.data)
+        existing_papers = supabase.table(documents_table_name).select('paper_id').in_('paper_id', paper_ids).execute()
+        existing_ids = set(paper['paper_id'] for paper in existing_papers.data)
         
         print(f"Number of existing papers in this batch: {len(existing_ids)}")
         
         for paper in batch:
             paper_id = paper['id']
             if paper_id not in existing_ids:
-                embedding, metadata, content = get_document(embedding_model, paper)
-                documents_to_insert.append({
-                    "content": content,
-                    "metadata": metadata,
-                    "embedding": embedding.tolist()
-                })
+                document = get_document(embedding_model, paper)
+                documents_to_insert.append(document)
                 inserted_papers += 1
         
         if documents_to_insert:
