@@ -11,8 +11,11 @@ def initialize_supabase():
     model_choose = "nomic-ai/nomic-embed-text-v1.5"
     embedding_model = SentenceTransformer(model_choose, trust_remote_code=True)
     embedding_model.to(torch.device('mps'))
+    #
     url: str = os.environ.get("SUPABASE_URL")
     key: str = os.environ.get("SUPABASE_KEY")
+    print(f"Supabase URL: {url}")
+    print(f"Supabase Key: {key}")
     supabase: Client = create_client(url, key)
     return supabase, embedding_model
 

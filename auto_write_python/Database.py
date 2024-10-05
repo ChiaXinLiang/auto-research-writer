@@ -52,11 +52,12 @@ class Supabase:
         return Supabase.execute_query(lambda: Supabase.client.rpc(function_name, params).execute().data)
 
     @staticmethod
-    def search_documents(query: str, match_count: int = 100):
+    def search_documents(query: str, match_count: int = 100, match_threshold: float = 0.5):
         query_embedding = Supabase.embedding_model.encode(query).tolist()
         response = Supabase.client.rpc('match_documents', {
             'query_embedding': query_embedding,
             'match_count': match_count,
+            'match_threshold': match_threshold,
             'filter': {}  # Add an empty filter as default
         }).execute()
         
