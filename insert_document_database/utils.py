@@ -129,14 +129,23 @@ def insert_papers(supabase, embedding_model, papers):
     batch_size = 500  # Adjust this value based on your needs
     
     for i in tqdm(range(0, total_papers, batch_size), desc="Inserting papers"):
+        if i % (5 * batch_size) == 0:
+            # Reinitialize Supabase every 5 batches
+            supabase, _ = initialize_supabase()
+        
         batch = papers[i:i+batch_size]
         documents_to_insert = []
         
+        # Get all existing paper IDs in this batch
+        paper_ids = [paper['id'] for paper in batch]
+        existing_papers = supabase.table('documents').select('metadata->>id').in_('metadata->>id', paper_ids).execute()
+        existing_ids = set(paper['metadata']['id'] for paper in existing_papers.data)
+        
+        print(f"Number of existing papers in this batch: {len(existing_ids)}")
+        
         for paper in batch:
             paper_id = paper['id']
-            existing_paper = supabase.table('documents').select('id').eq('metadata->>id', paper_id).execute()
-            
-            if not existing_paper.data:
+            if paper_id not in existing_ids:
                 embedding, metadata, content = get_document(embedding_model, paper)
                 documents_to_insert.append({
                     "content": content,
