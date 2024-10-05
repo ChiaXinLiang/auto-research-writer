@@ -7,7 +7,7 @@ from src.utils import chunking
 
 def main():
     load_dotenv('.env.local')
-    model = "llama3.1:8b"  # or any other Ollama model
+    model = "llama3.1:latest"  # or any other Ollama model
     api_key = ""  # Ollama typically doesn't require an API key for local usage
     ollama_url = os.getenv('OLLAMA_URL')  # Get the Ollama URL from the environment variable
 
@@ -17,7 +17,7 @@ def main():
     writer = Writer(model, api_key=api_key, chat_provider="ollama", url_key=ollama_url)
 
     # Example usage
-    topic = "The Impact of Artificial Intelligence on Modern Society"
+    topic = "Introduction to Prompthing Method in large language model"
     
     # Use Supabase to get abstract chunks and title chunks
     search_results = Supabase.search_documents(topic, match_count=1500)  # Adjust match_count as needed
@@ -42,7 +42,7 @@ def main():
     print()
 
     # Generate subsection outlines
-    rag_num = 100  # Number of papers to retrieve for each section
+    rag_num = 50  # Number of papers to retrieve for each section
     sub_outlines = writer.generate_subsection_outlines(topic, merged_outline, rag_num)
     print("Subsection Outlines:")
     for i, sub_outline in enumerate(sub_outlines):
